@@ -67,7 +67,10 @@ def _detect(image, cfg, profile):
         full_coverage=profile["full_coverage"],
         cluster_k=profile.get("cluster_k", 4),
         cluster_min_texture=profile.get("cluster_min_texture", 0.08),
-        cluster_anchor_bottom=profile.get("cluster_anchor_bottom", False),
+        cluster_reject_top_touch=profile.get("cluster_reject_top_touch", False),
+        cluster_require_bottom_touch=profile.get(
+            "cluster_require_bottom_touch", False
+        ),
         cluster_max_brightness=profile.get("cluster_max_brightness", 1.0),
         brightness_min_contrast=profile.get("brightness_min_contrast", 40),
         fill_holes_area=profile.get("fill_holes", 0),

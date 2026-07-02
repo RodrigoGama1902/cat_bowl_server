@@ -172,7 +172,10 @@ def detect():
             full_coverage=profile["full_coverage"],
             cluster_k=profile.get("cluster_k", 4),
             cluster_min_texture=profile.get("cluster_min_texture", 0.08),
-            cluster_anchor_bottom=profile.get("cluster_anchor_bottom", False),
+            cluster_reject_top_touch=profile.get("cluster_reject_top_touch", False),
+            cluster_require_bottom_touch=profile.get(
+                "cluster_require_bottom_touch", False
+            ),
             cluster_max_brightness=profile.get("cluster_max_brightness", 1.0),
             brightness_min_contrast=profile.get("brightness_min_contrast", 40),
             fill_holes_area=profile.get("fill_holes", 0),
@@ -268,8 +271,12 @@ def update_config():
                 if raw["cluster_tone_priority"] not in ("off", "dark", "bright"):
                     return jsonify({"error": "cluster_tone_priority must be 'off', 'dark' or 'bright'"}), 400
                 profile["cluster_tone_priority"] = raw["cluster_tone_priority"]
-            if "cluster_anchor_bottom" in raw:
-                profile["cluster_anchor_bottom"] = bool(raw["cluster_anchor_bottom"])
+            if "cluster_reject_top_touch" in raw:
+                profile["cluster_reject_top_touch"] = bool(raw["cluster_reject_top_touch"])
+            if "cluster_require_bottom_touch" in raw:
+                profile["cluster_require_bottom_touch"] = bool(
+                    raw["cluster_require_bottom_touch"]
+                )
             if "cluster_max_brightness" in raw:
                 profile["cluster_max_brightness"] = float(raw["cluster_max_brightness"])
             if "brightness_min_contrast" in raw:
@@ -349,9 +356,13 @@ def calibrate_preview():
     cluster_tone_priority = request.args.get(
         "cluster_tone_priority", profile.get("cluster_tone_priority", "off")
     )
-    cluster_anchor_bottom = _as_bool(
-        request.args.get("cluster_anchor_bottom"),
-        profile.get("cluster_anchor_bottom", False),
+    cluster_reject_top_touch = _as_bool(
+        request.args.get("cluster_reject_top_touch"),
+        profile.get("cluster_reject_top_touch", False),
+    )
+    cluster_require_bottom_touch = _as_bool(
+        request.args.get("cluster_require_bottom_touch"),
+        profile.get("cluster_require_bottom_touch", False),
     )
     cluster_max_brightness = request.args.get(
         "cluster_max_brightness",
@@ -388,7 +399,10 @@ def calibrate_preview():
         mask = compute_mask(
             crop, threshold, min_artifact_area, method, dilate, cluster_k,
             cluster_min_texture, brightness_min_contrast, fill_holes_area,
-            brightness_max_smoothness, cluster_anchor_bottom, cluster_max_brightness,
+            brightness_max_smoothness,
+            cluster_reject_top_touch,
+            cluster_require_bottom_touch,
+            cluster_max_brightness,
             cluster_tone_priority,
         )
         if roi_shape == "ellipse":
@@ -423,7 +437,8 @@ def calibrate_preview():
             "cluster_k": cluster_k,
             "cluster_min_texture": cluster_min_texture,
             "cluster_tone_priority": cluster_tone_priority,
-            "cluster_anchor_bottom": cluster_anchor_bottom,
+            "cluster_reject_top_touch": cluster_reject_top_touch,
+            "cluster_require_bottom_touch": cluster_require_bottom_touch,
             "cluster_max_brightness": cluster_max_brightness,
             "brightness_min_contrast": brightness_min_contrast,
             "fill_holes": fill_holes_area,
@@ -454,8 +469,12 @@ def calibrate_save():
         updates["cluster_min_texture"] = float(data["cluster_min_texture"])
     if "cluster_tone_priority" in data and data["cluster_tone_priority"] in ("off", "dark", "bright"):
         updates["cluster_tone_priority"] = data["cluster_tone_priority"]
-    if "cluster_anchor_bottom" in data:
-        updates["cluster_anchor_bottom"] = bool(data["cluster_anchor_bottom"])
+    if "cluster_reject_top_touch" in data:
+        updates["cluster_reject_top_touch"] = bool(data["cluster_reject_top_touch"])
+    if "cluster_require_bottom_touch" in data:
+        updates["cluster_require_bottom_touch"] = bool(
+            data["cluster_require_bottom_touch"]
+        )
     if "cluster_max_brightness" in data:
         updates["cluster_max_brightness"] = float(data["cluster_max_brightness"])
     if "brightness_min_contrast" in data:

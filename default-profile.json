@@ -3,7 +3,8 @@
     "day": {
       "brightness_max_smoothness": 0,
       "brightness_min_contrast": 63,
-      "cluster_anchor_bottom": true,
+      "cluster_reject_top_touch": true,
+      "cluster_require_bottom_touch": true,
       "cluster_k": 3,
       "cluster_max_brightness": 1,
       "cluster_min_area_frac": 0,
@@ -19,7 +20,8 @@
     "night": {
       "brightness_max_smoothness": 0,
       "brightness_min_contrast": 42,
-      "cluster_anchor_bottom": true,
+      "cluster_reject_top_touch": true,
+      "cluster_require_bottom_touch": true,
       "cluster_k": 5,
       "cluster_max_brightness": 0.55,
       "cluster_min_area_frac": 0,

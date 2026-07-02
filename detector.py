@@ -66,10 +66,10 @@ CLUSTER_TONE_PRIORITY = _DAY.get("cluster_tone_priority", "off")
 # Fixed seed for the cluster method's k-means so detection is deterministic.
 _CLUSTER_RNG_SEED = 42
 
-# Cluster method: when True, only accept blobs that rest on the bottom edge of
-# the ROI and do not touch the top edge (a food pile sits at the bowl bottom; a
-# shadow or wall reflection often hangs from the top). Disabled by default.
-CLUSTER_ANCHOR_BOTTOM = _DAY.get("cluster_anchor_bottom", False)
+# Cluster/brightness geometry gates, configurable independently.
+# Reject blobs touching the top edge and/or require touching the bottom edge.
+CLUSTER_REJECT_TOP_TOUCH = _DAY.get("cluster_reject_top_touch", False)
+CLUSTER_REQUIRE_BOTTOM_TOUCH = _DAY.get("cluster_require_bottom_touch", False)
 
 # Cluster method: absolute maximum mean brightness (0..1) a blob may have to
 # qualify as food. Blobs brighter than this are rejected outright, which drops
@@ -126,7 +126,8 @@ def compute_mask(
     brightness_min_contrast=BRIGHTNESS_MIN_CONTRAST,
     fill_holes_area=FILL_HOLES,
     brightness_max_smoothness=BRIGHTNESS_MAX_SMOOTHNESS,
-    cluster_anchor_bottom=CLUSTER_ANCHOR_BOTTOM,
+    cluster_reject_top_touch=CLUSTER_REJECT_TOP_TOUCH,
+    cluster_require_bottom_touch=CLUSTER_REQUIRE_BOTTOM_TOUCH,
     cluster_max_brightness=CLUSTER_MAX_BRIGHTNESS,
     cluster_tone_priority=CLUSTER_TONE_PRIORITY,
 ):
@@ -139,15 +140,19 @@ def compute_mask(
         mask = _brightness_mask(
             gray, threshold, brightness_min_contrast, brightness_max_smoothness
         )
-        if cluster_anchor_bottom:
-            # Same geometric gate as the cluster method: keep only food that
-            # rests on the bowl bottom and does not hang from the top.
-            mask = _filter_anchor_bottom(mask)
+        if cluster_reject_top_touch or cluster_require_bottom_touch:
+            # Same geometric gates as cluster mode, with independent toggles.
+            mask = _filter_by_top_bottom(
+                mask, cluster_reject_top_touch, cluster_require_bottom_touch
+            )
     elif method == "cluster":
         # Food forms one large homogeneous color/texture blob; isolate it.
         mask = _cluster_mask(
             crop, cluster_k, dilate, cluster_min_texture,
-            cluster_anchor_bottom, cluster_max_brightness, cluster_tone_priority,
+            cluster_reject_top_touch,
+            cluster_require_bottom_touch,
+            cluster_max_brightness,
+            cluster_tone_priority,
             min_artifact_area,
         )
     else:
@@ -237,21 +242,24 @@ def _texture_mask(gray, edge_threshold, dilate):
     return edges
 
 
-def _filter_anchor_bottom(mask):
-    """Keep only blobs that rest on the bottom edge and clear the top edge.
+def _filter_by_top_bottom(mask, reject_top_touch=False, require_bottom_touch=False):
+    """Filter blobs by top/bottom edge contact with independent gates.
 
-    A food pile sits at the bowl bottom, whereas shadows or wall reflections
-    usually hang from the top. Each connected component is discarded unless its
-    bounding box reaches the last row of the mask and does not touch the first
-    row.
+    ``reject_top_touch`` drops blobs whose bounding box touches the first row.
+    ``require_bottom_touch`` drops blobs whose bounding box does not reach the
+    last row. Both can be enabled together.
     """
+    if not reject_top_touch and not require_bottom_touch:
+        return mask
     height = mask.shape[0]
     num, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
     kept = np.zeros_like(mask)
     for label in range(1, num):
         top = stats[label, cv2.CC_STAT_TOP]
         bottom = top + stats[label, cv2.CC_STAT_HEIGHT]
-        if bottom < height or top <= 0:
+        if require_bottom_touch and bottom < height:
+            continue
+        if reject_top_touch and top <= 0:
             continue
         kept[labels == label] = 255
     return kept
@@ -262,7 +270,8 @@ def _cluster_mask(
     cluster_k,
     dilate,
     min_texture=CLUSTER_MIN_TEXTURE,
-    anchor_bottom=CLUSTER_ANCHOR_BOTTOM,
+    reject_top_touch=CLUSTER_REJECT_TOP_TOUCH,
+    require_bottom_touch=CLUSTER_REQUIRE_BOTTOM_TOUCH,
     max_brightness=CLUSTER_MAX_BRIGHTNESS,
     tone_priority=CLUSTER_TONE_PRIORITY,
     min_blob_area=1,
@@ -282,10 +291,9 @@ def _cluster_mask(
     useful when the food is reliably the darkest (or brightest) thing in the
     bowl.
 
-    When ``anchor_bottom`` is True a hard geometric gate is applied: a blob is
-    discarded unless it rests on the bottom edge of the ROI and does not touch
-    the top edge. A food pile sits at the bowl bottom, whereas shadows or wall
-    reflections usually hang from the top.
+    Top/bottom geometry gates can be enabled independently. With
+    ``reject_top_touch`` blobs touching the top edge are discarded. With
+    ``require_bottom_touch`` blobs not reaching the bottom edge are discarded.
 
     ``max_brightness`` (0..1) is an absolute cap on a blob's mean brightness: any
     blob brighter than it is rejected outright, which drops dim-but-not-dark
@@ -339,13 +347,12 @@ def _cluster_mask(
             area = stats[comp, cv2.CC_STAT_AREA]
             if area < min_area:
                 continue
-            if anchor_bottom:
-                # Hard geometric gate: keep only blobs resting on the bottom
-                # edge and clear of the top edge of the ROI.
-                top = stats[comp, cv2.CC_STAT_TOP]
-                bottom = top + stats[comp, cv2.CC_STAT_HEIGHT]
-                if bottom < crop_h or top <= 0:
-                    continue
+            top = stats[comp, cv2.CC_STAT_TOP]
+            bottom = top + stats[comp, cv2.CC_STAT_HEIGHT]
+            if require_bottom_touch and bottom < crop_h:
+                continue
+            if reject_top_touch and top <= 0:
+                continue
             blob = comps == comp
             # Texture density inside the blob (0..1): fraction of edge pixels.
             texture = float(np.count_nonzero(edges[blob])) / area
@@ -390,7 +397,8 @@ def compute_coverage(
     brightness_min_contrast=BRIGHTNESS_MIN_CONTRAST,
     fill_holes_area=FILL_HOLES,
     brightness_max_smoothness=BRIGHTNESS_MAX_SMOOTHNESS,
-    cluster_anchor_bottom=CLUSTER_ANCHOR_BOTTOM,
+    cluster_reject_top_touch=CLUSTER_REJECT_TOP_TOUCH,
+    cluster_require_bottom_touch=CLUSTER_REQUIRE_BOTTOM_TOUCH,
     cluster_max_brightness=CLUSTER_MAX_BRIGHTNESS,
     roi_shape="rect",
     cluster_tone_priority=CLUSTER_TONE_PRIORITY,
@@ -407,7 +415,8 @@ def compute_coverage(
         brightness_min_contrast,
         fill_holes_area,
         brightness_max_smoothness,
-        cluster_anchor_bottom,
+        cluster_reject_top_touch,
+        cluster_require_bottom_touch,
         cluster_max_brightness,
         cluster_tone_priority,
     )
@@ -475,7 +484,8 @@ def detect_image(
     brightness_min_contrast=BRIGHTNESS_MIN_CONTRAST,
     fill_holes_area=FILL_HOLES,
     brightness_max_smoothness=BRIGHTNESS_MAX_SMOOTHNESS,
-    cluster_anchor_bottom=CLUSTER_ANCHOR_BOTTOM,
+    cluster_reject_top_touch=CLUSTER_REJECT_TOP_TOUCH,
+    cluster_require_bottom_touch=CLUSTER_REQUIRE_BOTTOM_TOUCH,
     cluster_max_brightness=CLUSTER_MAX_BRIGHTNESS,
     roi_shape="rect",
     cluster_tone_priority=CLUSTER_TONE_PRIORITY,
@@ -485,7 +495,9 @@ def detect_image(
     raw_coverage = compute_coverage(
         crop, threshold, min_artifact_area, method, dilate, cluster_k, cluster_min_texture,
         brightness_min_contrast, fill_holes_area, brightness_max_smoothness,
-        cluster_anchor_bottom, cluster_max_brightness,
+        cluster_reject_top_touch,
+        cluster_require_bottom_touch,
+        cluster_max_brightness,
         roi_shape=roi_shape, cluster_tone_priority=cluster_tone_priority,
     )
     coverage = normalize_coverage(raw_coverage, minimum_coverage, full_coverage)
@@ -510,7 +522,8 @@ def detect(
     brightness_min_contrast=BRIGHTNESS_MIN_CONTRAST,
     fill_holes_area=FILL_HOLES,
     brightness_max_smoothness=BRIGHTNESS_MAX_SMOOTHNESS,
-    cluster_anchor_bottom=CLUSTER_ANCHOR_BOTTOM,
+    cluster_reject_top_touch=CLUSTER_REJECT_TOP_TOUCH,
+    cluster_require_bottom_touch=CLUSTER_REQUIRE_BOTTOM_TOUCH,
     cluster_max_brightness=CLUSTER_MAX_BRIGHTNESS,
     roi_shape="rect",
     cluster_tone_priority=CLUSTER_TONE_PRIORITY,
@@ -531,7 +544,8 @@ def detect(
         brightness_min_contrast,
         fill_holes_area,
         brightness_max_smoothness,
-        cluster_anchor_bottom,
+        cluster_reject_top_touch,
+        cluster_require_bottom_touch,
         cluster_max_brightness,
         roi_shape=roi_shape,
         cluster_tone_priority=cluster_tone_priority,

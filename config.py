@@ -22,9 +22,10 @@ PROFILE_DEFAULTS = {
     # "dark" always picks the darkest qualifying blob and "bright" the brightest
     # (food is often the darkest thing in the bowl). Gates still apply.
     "cluster_tone_priority": "off",
-    # Cluster method: hard gate that only accepts blobs resting on the bottom
-    # edge of the ROI and clear of the top edge. Disabled by default.
-    "cluster_anchor_bottom": False,
+    # Cluster/brightness geometry gates. Each can be enabled independently:
+    # reject blobs touching the top edge and/or require touching the bottom.
+    "cluster_reject_top_touch": False,
+    "cluster_require_bottom_touch": False,
     # Cluster method: absolute maximum mean brightness (0..1) a blob may have to
     # count as food; brighter blobs are rejected. Drops dim-but-not-dark patches
     # when the food (or bowl shadow) is the darkest region. 1.0 disables it.
@@ -73,7 +74,8 @@ def _migrate(raw):
             "cluster_k",
             "cluster_min_texture",
             "cluster_tone_priority",
-            "cluster_anchor_bottom",
+            "cluster_reject_top_touch",
+            "cluster_require_bottom_touch",
             "cluster_max_brightness",
             "brightness_min_contrast",
             "brightness_max_smoothness",
